@@ -892,6 +892,14 @@ function namaPengguna(){
   if(!userSekarang || !userSekarang.email) return "";
   return userSekarang.email.split("@")[0].toLowerCase();
 }
+/* Peta akses hanya boleh dibaca oleh yang sudah login */
+function muatAkses(){
+  if(!db || !userSekarang){ hitungPeran(); terapkanAkses(); return; }
+  db.collection("pengaturan").doc("akses").get().then(function(doc){
+    if(doc.exists && doc.data().peran) petaAkses=Object.assign({admin:"admin",sales:"sales"}, doc.data().peran);
+    hitungPeran(); terapkanAkses(); renderDaftarAkses();
+  }).catch(function(){ hitungPeran(); terapkanAkses(); });
+}
 function hitungPeran(){
   if(!userSekarang){ peranUser=null; return; }
   const u=namaPengguna();
@@ -934,7 +942,7 @@ function initFirebase(){
   try{
     firebase.initializeApp(firebaseConfig);
     auth=firebase.auth(); db=firebase.firestore();
-    auth.onAuthStateChanged(function(u){ userSekarang=u; hitungPeran(); terapkanAkses(); renderHeader(); });
+    auth.onAuthStateChanged(function(u){ userSekarang=u; hitungPeran(); terapkanAkses(); renderHeader(); muatAkses(); });
     cekKoneksi();
     muatPengaturan();
   }catch(e){ console.error(e); setStatus("gagal","Gagal init"); }
@@ -974,11 +982,6 @@ function muatPengaturan(){
     if(doc.exists) tampilUploadTerakhir(doc.data().waktu, doc.data().jumlah);
     else tampilUploadTerakhir(null);
   }).catch(function(){});
-
-  db.collection("pengaturan").doc("akses").get().then(function(doc){
-    if(doc.exists && doc.data().peran) petaAkses=Object.assign({admin:"admin",sales:"sales"}, doc.data().peran);
-    hitungPeran(); terapkanAkses();
-  }).catch(function(){ hitungPeran(); terapkanAkses(); });
 
   db.collection("pengaturan").doc("kategori").get().then(function(doc){
     if(doc.exists && Array.isArray(doc.data().items) && doc.data().items.length){
@@ -1311,21 +1314,56 @@ const CONTOH_PRODUK = [
     tingkat:[{min:1,max:null,harga:13000}]}
 ];
 
-let produkList=[], produkDimuat=false, katAktif="Semua";
+let produkList=[], produkDimuat=false, produkLengkap=false, katAktif="Semua";
 let modeAktif="pelanggan";
 let keranjang=[];   /* per produk: {kode,nama,satuanDasar,tingkat,baris:[{satuan,qty,isi}]} */
 
+/* ============================================================
+   PEMISAHAN DATA
+   produk        -> boleh dibaca publik (nama, kategori, satuan, label stok)
+   produk_privat -> wajib login  (harga, supplier, jumlah stok, kode internal)
+   ============================================================ */
+function labelStokDari(stok){ return stok<=0 ? "habis" : (stok<AMBANG_STOK ? "tipis" : "ready"); }
+
+/* hanya data publik — dipakai katalog pelanggan */
+function ambilProdukPublik(){
+  return db.collection("produk").limit(5000).get().then(function(snap){
+    const out=[];
+    snap.forEach(function(d){ const p=d.data(); if(p && p.satuan && p.satuan.length) out.push(p); });
+    return out;
+  });
+}
+/* publik + privat digabung — untuk staf yang sudah login */
+function ambilProdukGabung(){
+  return Promise.all([
+    db.collection("produk").limit(5000).get(),
+    db.collection("produk_privat").limit(5000).get()
+  ]).then(function(r){
+    const privat={};
+    r[1].forEach(function(d){ privat[d.id]=d.data()||{}; });
+    const out=[];
+    r[0].forEach(function(d){
+      const p=d.data(); if(!p || !p.satuan || !p.satuan.length) return;
+      out.push(Object.assign({}, p, privat[d.id]||{}));
+    });
+    return out;
+  });
+}
+function ambilProduk(){
+  return (modeAktif==="pelanggan") ? ambilProdukPublik() : ambilProdukGabung();
+}
+function urutkanProduk(a){ a.sort(function(x,y){ return String(x.nama||"").localeCompare(String(y.nama||"")); }); return a; }
+
 function muatProduk(){
   renderChips();
-  if(produkDimuat){ renderKatalog(); return; }
-  if(configBelumDiisi || !db){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; renderChips(); renderKatalog(); return; }
-  db.collection("produk").limit(4000).get().then(function(snap){
-    produkList=[];
-    snap.forEach(function(d){ const p=d.data(); if(p && p.satuan && p.satuan.length) produkList.push(p); });
-    if(!produkList.length) produkList=CONTOH_PRODUK.slice();
-    produkList.sort(function(a,b){ return String(a.nama||"").localeCompare(String(b.nama||"")); });
-    produkDimuat=true; renderChips(); renderKatalog();
-  }).catch(function(){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; renderChips(); renderKatalog(); });
+  const perluLengkap = (modeAktif!=="pelanggan");
+  if(produkDimuat && (!perluLengkap || produkLengkap)){ renderKatalog(); return; }
+  if(configBelumDiisi || !db){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; produkLengkap=true; renderChips(); renderKatalog(); return; }
+  ambilProduk().then(function(a){
+    produkList = a.length ? urutkanProduk(a) : CONTOH_PRODUK.slice();
+    produkDimuat=true; produkLengkap=perluLengkap;
+    renderChips(); renderKatalog();
+  }).catch(function(){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; produkLengkap=true; renderChips(); renderKatalog(); });
 }
 
 function renderChips(){
@@ -1431,11 +1469,20 @@ function rentangTeks(t){
   if(mx==null) return mn<=1 ? "semua jumlah" : (mn+"+");
   return mn+"\u2013"+mx;
 }
-function labelStok(stok,satuan){
-  const kelas = stok<=0 ? "stok-habis" : (stok<AMBANG_STOK ? "stok-dikit" : "stok-ready");
-  if(modeAktif==="sales") return {kelas:kelas, teks:stok+" "+(satuan||"")};  /* total satuan dasar */
-  if(stok<=0) return {kelas:"stok-habis",teks:"Habis"};
-  if(stok<AMBANG_STOK) return {kelas:"stok-dikit",teks:"Tipis"};
+function labelStok(p,satuan){
+  const punyaAngka = (p && p.stok!=null);
+  const stok = punyaAngka ? p.stok : 0;
+  if(punyaAngka){
+    const kelas = stok<=0 ? "stok-habis" : (stok<AMBANG_STOK ? "stok-dikit" : "stok-ready");
+    if(modeAktif==="sales") return {kelas:kelas, teks:stok+" "+(satuan||"")};
+    if(stok<=0) return {kelas:"stok-habis",teks:"Habis"};
+    if(stok<AMBANG_STOK) return {kelas:"stok-dikit",teks:"Tipis"};
+    return {kelas:"stok-ready",teks:"Ready"};
+  }
+  /* pelanggan hanya menerima label, bukan angka */
+  const L=(p && p.stokLabel) ? p.stokLabel : "habis";
+  if(L==="habis") return {kelas:"stok-habis",teks:"Habis"};
+  if(L==="tipis") return {kelas:"stok-dikit",teks:"Tipis"};
   return {kelas:"stok-ready",teks:"Ready"};
 }
 /* Pecah stok (dalam satuan dasar) ke semua satuan: 143 -> "4 BAL · 23 IKAT" */
@@ -1475,11 +1522,11 @@ function renderKatalog(){
   grid.innerHTML=hasil.slice(0,300).map(function(p){
     const i=produkList.indexOf(p);
     const dasarAwal=p.satuanDasar || (p.satuan[0]?p.satuan[0].nama:"");
-    const st=labelStok(p.stok,dasarAwal);
+    const st=labelStok(p,dasarAwal);
     const konv=konversiTeks(p.satuan);
     const sat=p.satuan.slice().sort(function(a,b){return a.isi-b.isi;});
     const dasar=p.satuanDasar || (sat[0]?sat[0].nama:"PCS");
-    const habis=(p.stok<=0);
+    const habis = (p.stok!=null) ? (p.stok<=0) : (p.stokLabel==="habis");
     const tk=(p.tingkat||[]);
 
     /* daftar tingkat harga */
@@ -1943,7 +1990,8 @@ function gabungData(master,harga,stok,lama){
     const p={
       kode:m.kode, nama:m.nama, kategori:kategori, kategoriManual:manual,
       satuan:m.satuan, satuanDasar:dasar, tingkat:tingkat,
-      stok:stokTotal, supplier:supplier, kodeInternal:kodeInternal
+      stok:stokTotal, stokLabel:labelStokDari(stokTotal),
+      supplier:supplier, kodeInternal:kodeInternal
     };
     hasil.push(p);
     lap.total++;
@@ -2004,8 +2052,13 @@ function prosesUpload(){
 /* ambil produk yang sudah ada (untuk pertahankan kategori & kode internal) */
 function ambilProdukLama(){
   if(configBelumDiisi||!db) return Promise.resolve({});
-  return db.collection("produk").get().then(function(snap){
-    const o={}; snap.forEach(function(d){ o[d.id]=d.data(); }); return o;
+  return Promise.all([
+    db.collection("produk").get(),
+    db.collection("produk_privat").get()
+  ]).then(function(r){
+    const privat={}; r[1].forEach(function(d){ privat[d.id]=d.data()||{}; });
+    const o={}; r[0].forEach(function(d){ o[d.id]=Object.assign({}, d.data()||{}, privat[d.id]||{}); });
+    return o;
   }).catch(function(){ return {}; });
 }
 
@@ -2068,7 +2121,7 @@ function simpanUpload(){
   const bar=document.getElementById("uplBar"), isi=document.getElementById("uplBarIsi");
   bar.style.display="block";
   const daftar=hasilGabung.produk.slice();
-  const UKURAN=400;
+  const UKURAN=200;   /* 2 tulisan per produk, tetap di bawah batas 500 per batch */
   let i=0;
 
   function kirim(){
@@ -2082,7 +2135,18 @@ function simpanUpload(){
       return;
     }
     const batch=db.batch();
-    daftar.slice(i,i+UKURAN).forEach(function(p){ batch.set(db.collection("produk").doc(p.kode), p); });
+    daftar.slice(i,i+UKURAN).forEach(function(p){
+      /* publik: aman dilihat siapa pun */
+      batch.set(db.collection("produk").doc(p.kode), {
+        kode:p.kode, nama:p.nama, kategori:p.kategori, kategoriManual:!!p.kategoriManual,
+        satuan:p.satuan, satuanDasar:p.satuanDasar, stokLabel:p.stokLabel
+      });
+      /* privat: hanya untuk yang sudah login */
+      batch.set(db.collection("produk_privat").doc(p.kode), {
+        tingkat:p.tingkat||[], supplier:p.supplier||[],
+        stok:p.stok||0, kodeInternal:p.kodeInternal||null
+      });
+    });
     batch.commit().then(function(){
       i+=UKURAN;
       isi.style.width=Math.min(100,Math.round(i/daftar.length*100))+"%";
@@ -2098,7 +2162,7 @@ function simpanUpload(){
 
 /* buang semua data yang tersimpan di memori supaya dimuat ulang dari database */
 function segarkanData(){
-  produkDimuat=false; adminDimuat=false;
+  produkDimuat=false; produkLengkap=false; adminDimuat=false;
   produkList=[]; produkAdmin=[];
   restok={}; satuanPilih={}; keranjang=[];
 }
@@ -2109,8 +2173,8 @@ function muatUlangData(){
   setPesan("pesanUpload","","Memuat ulang data dari database…");
   segarkanData();
   muatProdukAdmin();
-  db.collection("produk").get().then(function(snap){
-    setPesan("pesanUpload","ok","Data disegarkan \u2713 "+snap.size+" produk terbaca dari database.");
+  ambilProdukGabung().then(function(a){
+    setPesan("pesanUpload","ok","Data disegarkan \u2713 "+a.length+" produk terbaca dari database.");
   }).catch(function(err){ setPesan("pesanUpload","err","Gagal memuat: "+err.message); });
 }
 
@@ -2139,10 +2203,8 @@ function muatProdukAdmin(){
     return;
   }
   document.getElementById("kpList").innerHTML='<div class="kosong-hint">Memuat produk…</div>';
-  db.collection("produk").limit(4000).get().then(function(snap){
-    produkAdmin=[];
-    snap.forEach(function(d){ const p=d.data(); if(p) produkAdmin.push(p); });
-    produkAdmin.sort(function(a,b){ return String(a.nama||"").localeCompare(String(b.nama||"")); });
+  ambilProdukGabung().then(function(a){
+    produkAdmin=urutkanProduk(a);
     adminDimuat=true;
     renderKelolaProduk();
   }).catch(function(err){
@@ -2260,7 +2322,7 @@ function simpanKelolaProduk(){
     kode.slice(i,i+UKURAN).forEach(function(k){
       const d={};
       if(ubahProduk[k].kategori!=null){ d.kategori=ubahProduk[k].kategori; d.kategoriManual=true; }
-      batch.set(db.collection("produk").doc(k), d, {merge:true});
+      batch.set(db.collection("produk").doc(k), d, {merge:true});   /* kategori = data publik */
     });
     batch.commit().then(function(){
       i+=UKURAN;
@@ -2280,12 +2342,10 @@ let semuaSatuan=[], satuanPilih={};
 function muatPembelian(){
   if(produkDimuat){ isiSupplier(); pbRender(); return; }
   document.getElementById("pbList").innerHTML='<div class="kosong-hint">Memuat produk…</div>';
-  if(configBelumDiisi||!db){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; isiSupplier(); pbRender(); return; }
-  db.collection("produk").limit(4000).get().then(function(snap){
-    produkList=[];
-    snap.forEach(function(d){ const p=d.data(); if(p && p.satuan && p.satuan.length) produkList.push(p); });
-    produkList.sort(function(a,b){ return String(a.nama||"").localeCompare(String(b.nama||"")); });
-    produkDimuat=true; isiSupplier(); pbRender();
+  if(configBelumDiisi||!db){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; produkLengkap=true; isiSupplier(); pbRender(); return; }
+  ambilProdukGabung().then(function(a){
+    produkList=urutkanProduk(a);
+    produkDimuat=true; produkLengkap=true; isiSupplier(); pbRender();
   }).catch(function(err){
     document.getElementById("pbList").innerHTML='<div class="kosong-hint">Gagal memuat: '+lolos(err.message)+'</div>';
   });
@@ -2682,12 +2742,9 @@ function bukaTempelPesanan(){
 }
 /* muat produk tanpa menyentuh tampilan katalog */
 function muatProdukDiam(){
-  if(configBelumDiisi||!db){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; return; }
-  db.collection("produk").limit(4000).get().then(function(snap){
-    produkList=[];
-    snap.forEach(function(d){ const p=d.data(); if(p && p.satuan && p.satuan.length) produkList.push(p); });
-    produkList.sort(function(a,b){ return String(a.nama||"").localeCompare(String(b.nama||"")); });
-    produkDimuat=true;
+  if(configBelumDiisi||!db){ produkList=CONTOH_PRODUK.slice(); produkDimuat=true; produkLengkap=true; return; }
+  ambilProdukGabung().then(function(a){
+    produkList=urutkanProduk(a); produkDimuat=true; produkLengkap=true;
   }).catch(function(){});
 }
 
