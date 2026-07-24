@@ -28,6 +28,8 @@
   header{background:var(--bg2);border-bottom:1px solid var(--garis);padding:14px 22px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
   .brand-mark{width:44px;height:44px;flex:0 0 44px;border-radius:12px;background:linear-gradient(135deg,#E7C97A,#B8923E);color:#1A130A;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;letter-spacing:-.5px;box-shadow:0 4px 14px rgba(216,178,90,.3);overflow:hidden}
   .brand-mark img{width:100%;height:100%;object-fit:contain}
+  /* saat memakai logo sendiri, latar emas & sinarnya dimatikan */
+  .brand-mark.punya-logo,.login-mark.punya-logo{background:none;box-shadow:none}
   .brand-teks b{font-size:16px;font-weight:700;letter-spacing:.2px}
   .brand-teks span{font-size:11.5px;color:var(--emas);letter-spacing:1px;text-transform:uppercase}
   .header-kanan{margin-left:auto;display:flex;align-items:center;gap:8px}
@@ -42,8 +44,8 @@
   @keyframes masuk{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
   /* ---------- Banner promosi ---------- */
-  .promo-wrap{position:relative;border-radius:18px;overflow:hidden;border:1px solid rgba(216,178,90,.3);margin-bottom:26px;height:210px}
-  .promo-slide{position:absolute;inset:0;opacity:0;transition:opacity .6s ease;background-size:cover;background-position:center}
+  .promo-wrap{position:relative;border-radius:18px;overflow:hidden;border:1px solid rgba(216,178,90,.3);margin-bottom:26px;aspect-ratio:3/1;background:var(--bg2)}
+  .promo-slide{position:absolute;inset:0;opacity:0;transition:opacity .6s ease;background-size:contain;background-repeat:no-repeat;background-position:center}
   .promo-slide.aktif{opacity:1}
   .promo-slide::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,15,28,.85) 0%,rgba(9,15,28,.35) 55%,transparent 100%)}
   .promo-teks{position:absolute;left:26px;bottom:22px;right:26px;z-index:2}
@@ -53,7 +55,13 @@
   .promo-dots{position:absolute;bottom:16px;right:20px;z-index:3;display:flex;gap:7px}
   .promo-dots button{width:8px;height:8px;border-radius:50%;border:none;background:rgba(255,255,255,.4);cursor:pointer;padding:0;transition:.2s}
   .promo-dots button.aktif{background:var(--emas);width:22px;border-radius:5px}
-  @media (max-width:520px){.promo-wrap{height:170px}.promo-teks h3{font-size:19px}.promo-teks p{max-width:90%;font-size:13px}}
+  @media (max-width:520px){
+    .promo-teks{left:14px;bottom:11px;right:14px}
+    .promo-teks .tag{font-size:9.5px;padding:2px 8px;margin-bottom:5px}
+    .promo-teks h3{font-size:16px}
+    .promo-teks p{max-width:94%;font-size:11.5px}
+    .promo-dots{bottom:9px;right:12px}
+  }
 
   /* ---------- Hero ---------- */
   .hero{background:linear-gradient(135deg,#1B2740,#141C2D);border:1px solid var(--garis);border-radius:20px;padding:30px 28px;margin-bottom:30px;position:relative;overflow:hidden}
@@ -61,7 +69,7 @@
   .hero .garis-emas{width:44px;height:3px;background:linear-gradient(90deg,var(--emas),transparent);border-radius:2px;margin-bottom:16px}
   .hero .halo{font-size:12px;color:var(--emas);font-weight:600;letter-spacing:1.5px;text-transform:uppercase}
   .hero h1{font-family:var(--display);font-size:30px;font-weight:600;letter-spacing:-.5px;margin:6px 0 6px;color:#fff}
-  .hero p{color:var(--teks-lembut);font-size:14.5px;max-width:440px}
+  .hero p{color:var(--teks-lembut);font-size:14.5px;max-width:440px;white-space:pre-line}
   .hero-status{display:flex;align-items:center;gap:16px;margin-top:20px;flex-wrap:wrap}
   .hero-tgl{font-size:13px;color:var(--teks-redup);display:inline-flex;align-items:center;gap:6px}
   .hero-tgl svg{width:15px;height:15px}
@@ -135,6 +143,10 @@
   input[type=file]{display:none}
   .field{margin-bottom:14px}
   .field input[type=text]{margin-bottom:0}
+  .field textarea{width:100%;padding:11px 14px;font-size:14px;font-family:var(--font);border:1px solid var(--garis-hi);border-radius:11px;background:var(--bg2);color:var(--teks);resize:vertical;line-height:1.55}
+  .field textarea:focus{outline:none;border-color:var(--emas);box-shadow:0 0 0 3px rgba(216,178,90,.15)}
+  .field textarea::placeholder{color:var(--teks-redup)}
+  .field-bantu{font-size:11.5px;color:var(--teks-redup);margin-top:6px;line-height:1.5}
   .btn-simpan{background:linear-gradient(135deg,#E7C97A,#C79E42);color:#1A130A;border:none;padding:11px 20px;border-radius:11px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;margin-top:8px}
   .pesan-panel{font-size:13px;margin-top:12px;font-weight:600;min-height:18px}
   .pesan-panel.ok{color:var(--hijau)} .pesan-panel.err{color:var(--merah)}
@@ -482,8 +494,8 @@
     <div class="hero">
       <div class="garis-emas"></div>
       <div class="halo">Selamat datang</div>
-      <h1>Halo 👋</h1>
-      <p>Pilih area kerja untuk mulai mengelola toko.</p>
+      <h1 id="heroJudul">Halo 👋</h1>
+      <p id="heroSub">Pilih area kerja untuk mulai mengelola toko.</p>
       <div class="hero-status">
         <div class="status-koneksi st-cek" id="statusKoneksi"><span class="titik"></span><span id="statusTeks">Mengecek koneksi…</span></div>
         <div class="hero-tgl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg><span id="tanggalHari">—</span></div>
@@ -621,9 +633,20 @@
       <h3>Identitas & ikon</h3>
       <p class="sub">Atur logo toko dan ikon tiap mode. Ukuran gambar otomatis dikecilkan. Disarankan file PNG transparan.</p>
 
-      <div class="field" style="margin-bottom:18px">
+      <div class="field" style="margin-bottom:14px">
         <label>Nomor WhatsApp toko (tujuan order pelanggan)</label>
         <input type="text" id="inputNoWa" placeholder="mis. 6281234567890" inputmode="numeric">
+      </div>
+
+      <div class="field" style="margin-bottom:14px">
+        <label>Judul halaman depan</label>
+        <input type="text" id="inputJudulHero" placeholder="Halo &#128075;">
+      </div>
+
+      <div class="field" style="margin-bottom:18px">
+        <label>Keterangan / pengumuman</label>
+        <textarea id="inputSubHero" rows="3" placeholder="Pilih area kerja untuk mulai mengelola toko."></textarea>
+        <div class="field-bantu">Boleh beberapa baris. Tampil di halaman depan, jadi terbaca juga oleh pelanggan.</div>
       </div>
 
       <div class="baris-ikon">
@@ -706,7 +729,7 @@
     <!-- Panel: Banner promosi -->
     <div class="panel">
       <h3>Banner promosi</h3>
-      <p class="sub">Banner ini tampil di halaman depan. Cocok buat promo produk tertentu.</p>
+      <p class="sub">Banner ini tampil di halaman depan. Pakai gambar <b>1200 &times; 400 px</b> (perbandingan 3:1) supaya tampil utuh tanpa terpotong, baik di HP maupun laptop.</p>
 
       <div class="field">
         <label>Gambar banner</label>
@@ -931,7 +954,7 @@ const ikonDefault = {
 };
 
 /* State pengaturan (dari firestore) */
-let pengaturan = { logo:null, noWa:"", ikon:{pelanggan:null,sales:null,pembelian:null,admin:null,setting:null} };
+let pengaturan = { logo:null, noWa:"", judulHero:"", subHero:"", ikon:{pelanggan:null,sales:null,pembelian:null,admin:null,setting:null} };
 let bannerItems = [];
 let bannerBaru = null;   /* dataURL gambar banner yang sedang disiapkan */
 let promoTimer = null;
@@ -968,6 +991,8 @@ function muatPengaturan(){
       const d=doc.data();
       if(d.logo) pengaturan.logo=d.logo;
       if(typeof d.noWa==="string") pengaturan.noWa=d.noWa;
+      if(typeof d.judulHero==="string") pengaturan.judulHero=d.judulHero;
+      if(typeof d.subHero==="string") pengaturan.subHero=d.subHero;
       if(d.ikon) pengaturan.ikon=Object.assign(pengaturan.ikon,d.ikon);
     }
     terapkanPengaturan();
@@ -991,16 +1016,29 @@ function muatPengaturan(){
     }
   }).catch(function(){});
 }
+const JUDUL_HERO_ASAL = "Halo \uD83D\uDC4B";
+const SUB_HERO_ASAL   = "Pilih area kerja untuk mulai mengelola toko.";
+
 function terapkanPengaturan(){
-  /* Logo di header & login */
+  /* Logo di header & login.
+     Kalau memakai logo sendiri, latar emas & sinarnya dimatikan
+     supaya yang tampil murni logonya. */
   const mark=document.getElementById("brandMark");
   const lmark=document.getElementById("loginMark");
   if(pengaturan.logo){
-    mark.innerHTML='<img src="'+pengaturan.logo+'" alt="logo">';
-    lmark.innerHTML='<img src="'+pengaturan.logo+'" alt="logo">';
+    const img='<img src="'+pengaturan.logo+'" alt="logo">';
+    mark.innerHTML=img;  mark.classList.add("punya-logo");
+    lmark.innerHTML=img; lmark.classList.add("punya-logo");
   }else{
-    mark.textContent="JB"; lmark.textContent="JB";
+    mark.textContent="JB";  mark.classList.remove("punya-logo");
+    lmark.textContent="JB"; lmark.classList.remove("punya-logo");
   }
+
+  /* Judul & keterangan halaman depan (bisa dipakai untuk pengumuman) */
+  const hj=document.getElementById("heroJudul");
+  const hs=document.getElementById("heroSub");
+  if(hj) hj.textContent = pengaturan.judulHero || JUDUL_HERO_ASAL;
+  if(hs) hs.textContent = pengaturan.subHero   || SUB_HERO_ASAL;
   /* Ikon tiap mode */
   ["pelanggan","sales","pembelian","admin","setting"].forEach(function(m){
     renderChip(m);
@@ -1165,6 +1203,8 @@ function renderPanelAdmin(){
     if(el) el.innerHTML='<div class="lap-warn" style="margin:0 0 4px">🧪 <b>Mode coba</b> — Firebase belum disetel. Kamu bisa upload &amp; lihat hasil pembacaan, tapi tombol Simpan belum berfungsi.</div>';
   }
   document.getElementById("inputNoWa").value = pengaturan.noWa || "";
+  document.getElementById("inputJudulHero").value = pengaturan.judulHero || "";
+  document.getElementById("inputSubHero").value = pengaturan.subHero || "";
   const pl=document.getElementById("prevLogo");
   pl.innerHTML = pengaturan.logo ? '<img src="'+pengaturan.logo+'">' : 'JB';
   ["pelanggan","sales","pembelian","admin","setting"].forEach(function(m){
@@ -1218,7 +1258,10 @@ function simpanTampilan(){
   if(!userSekarang){ setPesan("pesanTampilan","err","Harus login untuk menyimpan."); return; }
   setPesan("pesanTampilan","","Menyimpan…");
   pengaturan.noWa=(document.getElementById("inputNoWa").value||"").replace(/[^0-9]/g,"");
-  db.collection("pengaturan").doc("tampilan").set({logo:pengaturan.logo, noWa:pengaturan.noWa, ikon:pengaturan.ikon})
+  pengaturan.judulHero=(document.getElementById("inputJudulHero").value||"").trim();
+  pengaturan.subHero=(document.getElementById("inputSubHero").value||"").replace(/\s+$/,"");
+  db.collection("pengaturan").doc("tampilan").set({logo:pengaturan.logo, noWa:pengaturan.noWa,
+      judulHero:pengaturan.judulHero, subHero:pengaturan.subHero, ikon:pengaturan.ikon})
     .then(function(){ terapkanPengaturan(); setPesan("pesanTampilan","ok","Tersimpan ✓ Sudah diterapkan."); })
     .catch(function(err){ setPesan("pesanTampilan","err","Gagal simpan: "+err.message); });
 }
@@ -1227,7 +1270,7 @@ function simpanTampilan(){
 function pilihGambarBanner(inp){
   if(!inp.files[0]) return;
   document.getElementById("namaFileBanner").textContent="memproses…";
-  kompresGambar(inp.files[0], 1000, "image/jpeg", 0.72).then(function(dataURL){
+  kompresGambar(inp.files[0], 1200, "image/jpeg", 0.78).then(function(dataURL){
     bannerBaru=dataURL;
     document.getElementById("namaFileBanner").textContent="gambar siap ✓";
   }).catch(function(err){ document.getElementById("namaFileBanner").textContent=err.message; });
