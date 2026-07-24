@@ -948,7 +948,7 @@ function initFirebase(){
   }catch(e){ console.error(e); setStatus("gagal","Gagal init"); }
 }
 function cekKoneksi(){
-  db.collection("produk").limit(1).get()
+  db.collection("katalog").limit(1).get()
     .then(function(){ setStatus("ok","Firebase terhubung"); })
     .catch(function(err){ setStatus("gagal", err.code==="permission-denied"?"Rules menolak baca":"Gagal konek"); });
 }
@@ -1325,26 +1325,38 @@ let keranjang=[];   /* per produk: {kode,nama,satuanDasar,tingkat,baris:[{satuan
    ============================================================ */
 function labelStokDari(stok){ return stok<=0 ? "habis" : (stok<AMBANG_STOK ? "tipis" : "ready"); }
 
+/* Produk disimpan berbundel (±500 per dokumen) supaya hemat kuota baca.
+   Sekali buka katalog hanya ~8 baca, bukan ribuan. */
+const ISI_BUNDEL = 500;
+
+function bacaBundel(namaKoleksi){
+  return db.collection(namaKoleksi).get().then(function(snap){
+    const out=[];
+    snap.forEach(function(d){
+      const data=d.data();
+      if(data && Array.isArray(data.items)){
+        data.items.forEach(function(it){ it._b=d.id; out.push(it); });
+      }
+    });
+    return out;
+  });
+}
+
 /* hanya data publik — dipakai katalog pelanggan */
 function ambilProdukPublik(){
-  return db.collection("produk").limit(5000).get().then(function(snap){
-    const out=[];
-    snap.forEach(function(d){ const p=d.data(); if(p && p.satuan && p.satuan.length) out.push(p); });
-    return out;
+  return bacaBundel("katalog").then(function(a){
+    return a.filter(function(p){ return p && p.satuan && p.satuan.length; });
   });
 }
 /* publik + privat digabung — untuk staf yang sudah login */
 function ambilProdukGabung(){
-  return Promise.all([
-    db.collection("produk").limit(5000).get(),
-    db.collection("produk_privat").limit(5000).get()
-  ]).then(function(r){
+  return Promise.all([ bacaBundel("katalog"), bacaBundel("katalog_privat") ]).then(function(r){
     const privat={};
-    r[1].forEach(function(d){ privat[d.id]=d.data()||{}; });
+    r[1].forEach(function(x){ if(x && x.kode) privat[x.kode]=x; });
     const out=[];
-    r[0].forEach(function(d){
-      const p=d.data(); if(!p || !p.satuan || !p.satuan.length) return;
-      out.push(Object.assign({}, p, privat[d.id]||{}));
+    r[0].forEach(function(p){
+      if(!p || !p.satuan || !p.satuan.length) return;
+      out.push(Object.assign({}, p, privat[p.kode]||{}));
     });
     return out;
   });
@@ -2052,12 +2064,8 @@ function prosesUpload(){
 /* ambil produk yang sudah ada (untuk pertahankan kategori & kode internal) */
 function ambilProdukLama(){
   if(configBelumDiisi||!db) return Promise.resolve({});
-  return Promise.all([
-    db.collection("produk").get(),
-    db.collection("produk_privat").get()
-  ]).then(function(r){
-    const privat={}; r[1].forEach(function(d){ privat[d.id]=d.data()||{}; });
-    const o={}; r[0].forEach(function(d){ o[d.id]=Object.assign({}, d.data()||{}, privat[d.id]||{}); });
+  return ambilProdukGabung().then(function(a){
+    const o={}; a.forEach(function(p){ if(p && p.kode) o[p.kode]=p; });
     return o;
   }).catch(function(){ return {}; });
 }
@@ -2120,41 +2128,48 @@ function simpanUpload(){
   const btn=document.getElementById("btnSimpanUpload"); btn.disabled=true;
   const bar=document.getElementById("uplBar"), isi=document.getElementById("uplBarIsi");
   bar.style.display="block";
+
   const daftar=hasilGabung.produk.slice();
-  const UKURAN=200;   /* 2 tulisan per produk, tetap di bawah batas 500 per batch */
+  /* pecah jadi bundel ±500 produk per dokumen */
+  const bundel=[];
+  for(let k=0;k<daftar.length;k+=ISI_BUNDEL) bundel.push(daftar.slice(k,k+ISI_BUNDEL));
   let i=0;
 
   function kirim(){
-    if(i>=daftar.length){
-      db.collection("pengaturan").doc("upload").set({waktu:new Date().toISOString(),jumlah:daftar.length}).catch(function(){});
+    if(i>=bundel.length){
+      db.collection("pengaturan").doc("upload")
+        .set({waktu:new Date().toISOString(), jumlah:daftar.length, bundel:bundel.length})
+        .catch(function(){});
       segarkanData();
       isi.style.width="100%";
       btn.disabled=false;
-      setPesan("pesanUpload","ok","Tersimpan ✓ "+daftar.length+" produk masuk database.");
+      setPesan("pesanUpload","ok","Tersimpan \u2713 "+daftar.length+" produk dalam "+bundel.length+" bundel.");
       tampilUploadTerakhir(new Date().toISOString(),daftar.length);
       return;
     }
     const batch=db.batch();
-    daftar.slice(i,i+UKURAN).forEach(function(p){
-      /* publik: aman dilihat siapa pun */
-      batch.set(db.collection("produk").doc(p.kode), {
-        kode:p.kode, nama:p.nama, kategori:p.kategori, kategoriManual:!!p.kategoriManual,
-        satuan:p.satuan, satuanDasar:p.satuanDasar, stokLabel:p.stokLabel
-      });
-      /* privat: hanya untuk yang sudah login */
-      batch.set(db.collection("produk_privat").doc(p.kode), {
-        tingkat:p.tingkat||[], supplier:p.supplier||[],
-        stok:p.stok||0, kodeInternal:p.kodeInternal||null
-      });
+    const id="b"+i;
+    batch.set(db.collection("katalog").doc(id), {
+      items: bundel[i].map(function(p){
+        return { kode:p.kode, nama:p.nama, kategori:p.kategori,
+                 kategoriManual:!!p.kategoriManual,
+                 satuan:p.satuan, satuanDasar:p.satuanDasar, stokLabel:p.stokLabel };
+      })
+    });
+    batch.set(db.collection("katalog_privat").doc(id), {
+      items: bundel[i].map(function(p){
+        return { kode:p.kode, tingkat:p.tingkat||[], supplier:p.supplier||[],
+                 stok:p.stok||0, kodeInternal:p.kodeInternal||null };
+      })
     });
     batch.commit().then(function(){
-      i+=UKURAN;
-      isi.style.width=Math.min(100,Math.round(i/daftar.length*100))+"%";
-      setPesan("pesanUpload","","Menyimpan… "+Math.min(i,daftar.length)+" / "+daftar.length);
-      setTimeout(kirim,60);
+      i++;
+      isi.style.width=Math.round(i/bundel.length*100)+"%";
+      setPesan("pesanUpload","","Menyimpan bundel "+i+" / "+bundel.length+"\u2026");
+      setTimeout(kirim,80);
     }).catch(function(err){
       btn.disabled=false;
-      setPesan("pesanUpload","err","Gagal menyimpan di produk ke-"+i+": "+err.message);
+      setPesan("pesanUpload","err","Gagal menyimpan bundel ke-"+(i+1)+": "+err.message);
     });
   }
   kirim();
@@ -2303,31 +2318,40 @@ function simpanKelolaProduk(){
   if(!kode.length){ setPesan("pesanKelola","err","Belum ada yang diubah."); return; }
   setPesan("pesanKelola","","Menyimpan "+kode.length+" produk…");
 
-  const UKURAN=300; let i=0;
+  /* kelompokkan perubahan menurut bundel asalnya */
+  const perluTulis={};
+  kode.forEach(function(k){
+    const p=produkAdmin.find(function(x){ return x.kode===k; });
+    if(p && p._b) perluTulis[p._b]=true;
+  });
+  const daftarBundel=Object.keys(perluTulis);
+  if(!daftarBundel.length){ setPesan("pesanKelola","err","Tidak menemukan bundel asal produk. Coba Muat ulang data."); return; }
+
+  /* terapkan dulu ke data di memori */
+  kode.forEach(function(k){
+    const p=produkAdmin.find(function(x){ return x.kode===k; });
+    if(!p) return;
+    if(ubahProduk[k].kategori!=null){ p.kategori=ubahProduk[k].kategori; p.kategoriManual=true; }
+  });
+
+  let i=0;
   function kirim(){
-    if(i>=kode.length){
-      /* terapkan ke data lokal biar tampilan langsung sinkron */
-      kode.forEach(function(k){
-        const p=produkAdmin.find(function(x){ return x.kode===k; });
-        if(p){
-          if(ubahProduk[k].kategori!=null){ p.kategori=ubahProduk[k].kategori; p.kategoriManual=true; }
-        }
-      });
-      ubahProduk={}; kpPilih={}; produkDimuat=false;
+    if(i>=daftarBundel.length){
+      ubahProduk={}; kpPilih={}; produkDimuat=false; produkLengkap=false;
       renderKelolaProduk();
-      setPesan("pesanKelola","ok","Tersimpan ✓ "+kode.length+" produk diperbarui.");
+      setPesan("pesanKelola","ok","Tersimpan \u2713 "+kode.length+" produk diperbarui.");
       return;
     }
-    const batch=db.batch();
-    kode.slice(i,i+UKURAN).forEach(function(k){
-      const d={};
-      if(ubahProduk[k].kategori!=null){ d.kategori=ubahProduk[k].kategori; d.kategoriManual=true; }
-      batch.set(db.collection("produk").doc(k), d, {merge:true});   /* kategori = data publik */
+    const idB=daftarBundel[i];
+    const isiB=produkAdmin.filter(function(p){ return p._b===idB; }).map(function(p){
+      return { kode:p.kode, nama:p.nama, kategori:p.kategori,
+               kategoriManual:!!p.kategoriManual,
+               satuan:p.satuan, satuanDasar:p.satuanDasar, stokLabel:p.stokLabel };
     });
-    batch.commit().then(function(){
-      i+=UKURAN;
-      setPesan("pesanKelola","","Menyimpan… "+Math.min(i,kode.length)+" / "+kode.length);
-      setTimeout(kirim,60);
+    db.collection("katalog").doc(idB).set({items:isiB}).then(function(){
+      i++;
+      setPesan("pesanKelola","","Menyimpan\u2026 "+i+" / "+daftarBundel.length+" bundel");
+      setTimeout(kirim,80);
     }).catch(function(err){ setPesan("pesanKelola","err","Gagal simpan: "+err.message); });
   }
   kirim();
